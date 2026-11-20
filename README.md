@@ -176,13 +176,21 @@ Filter, und `html_zu_text(...)` immer mit `|e` kombinieren.
 
 ## Beim Buchen
 
-- **ZUGFeRD-PDF wird angehängt:** `haenge_zugferd_pdf_an()` (on_submit) erzeugt das PDF
-  im Standard-Druckformat, bettet das XML über `eu_einvoice.einvoice.attach_xml_to_pdf`
-  ein und legt es als `<Belegname> (ZUGFeRD).pdf` an die Rechnung. Die E-Rechnungs-App
-  selbst hängt nur bei Profil `XRECHNUNG` eine XML-Datei an.
-- **Validierung blockiert:** `E Invoice Settings` steht auf Speichern **und** Buchen
-  `Error Message`. Rechnungen mit XML-Fehlern (z. B. fehlende Kundenanschrift BR-10,
-  fehlende Käufer-E-Mail BR-62) lassen sich nicht buchen.
+Die App haengt **kein eigenes PDF** an - das macht `pdf_on_submit`, und zwar besser:
+es rendert im konfigurierten Druckformat und bettet, wenn `eu_einvoice` installiert
+ist, das E-Rechnungs-XML ein (`attach_xml_to_pdf`). `_pdf_on_submit_zuordnen()` in
+`install.py` traegt fuer alle vier Belegarten unser Druckformat in
+`PDF on Submit Settings` ein; ohne diese Zuordnung nimmt die App das Standardformat
+der Belegart, das nicht unseres ist.
+
+Eine eigene Attach-Logik in dieser App gab es zwischenzeitlich - sie erzeugte ein
+zweites PDF am Beleg (einmal `<Name>.pdf` von `pdf_on_submit`, einmal
+`<Name> (ZUGFeRD).pdf`). Deshalb wieder entfernt: ein Mechanismus, eine Datei.
+
+**Validierung blockiert:** `E Invoice Settings` steht auf Speichern **und** Buchen
+`Error Message`. Rechnungen mit XML-Fehlern (fehlende Kundenanschrift BR-10,
+fehlende Kaeufer-E-Mail BR-62, fehlende Buyer-Reference BR-DE-15 bei XRechnung)
+lassen sich nicht buchen.
 
 ## Site-Einstellungen, die dazugehören
 

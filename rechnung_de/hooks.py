@@ -293,11 +293,14 @@ after_uninstall = "rechnung_de.uninstall.after_uninstall"
 # -----------
 doc_events = {
 	"Sales Invoice": {
-		"validate": [
-			"rechnung_de.rechnung.setze_zahlungsart",
+		# before_validate: die E-Rechnungs-App prueft das XML in ihrem eigenen
+		# validate-Handler, der je nach App-Reihenfolge vor unserem laeuft. Leistungsdatum
+		# (BT-72) und Buyer-Reference (BT-10) muessen deshalb vorher stehen.
+		"before_validate": [
 			"rechnung_de.rechnung.ergaenze_leistungsdatum",
 			"rechnung_de.rechnung.ergaenze_buyer_reference",
 		],
-		"on_submit": "rechnung_de.rechnung.haenge_zugferd_pdf_an",
+		# validate: der Zahlungsplan wird erst im validate der Rechnung aufgebaut.
+		"validate": "rechnung_de.rechnung.setze_zahlungsart",
 	},
 }

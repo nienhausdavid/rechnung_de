@@ -18,6 +18,15 @@ Druckformat.
 import frappe
 
 RECHNUNG_PRINT_FORMAT = "Rechnung Kleinunternehmer"
+
+# Druckformat je Belegart - auch fuer Angebot, Auftragsbestaetigung und Lieferschein,
+# damit "PDF erzeugen" und die automatische PDF-Erzeugung dieselben Formate nutzen.
+DRUCKFORMATE = {
+	"Sales Invoice": "Rechnung Kleinunternehmer",
+	"Quotation": "Angebot",
+	"Sales Order": "Auftragsbestätigung",
+	"Delivery Note": "Lieferschein",
+}
 MODULE = "Rechnung DE"
 EINVOICE_PROFIL = "EN 16931"
 
@@ -59,6 +68,7 @@ def after_migrate():
 def _abgleichen():
 	_rechnung_druck_abgleichen()
 	_belegvorgaben_abgleichen()
+	_je_schritt(("PDF-Erzeugung beim Buchen", _pdf_on_submit_zuordnen))
 	_module_nachtragen()
 
 
@@ -175,7 +185,7 @@ def _rechnung_druck_abgleichen():
 		return
 
 	_je_schritt(
-		("Standard-Druckformat fuer Ausgangsrechnungen", _druckformat_vorgeben),
+		("Standard-Druckformate", _druckformat_vorgeben),
 		("Beschriftung von from_date", _leistungsbeginn_beschriften),
 		("Beschriftung von to_date", _leistungsdatum_beschriften),
 		("Beschreibung von to_date", _leistungsdatum_beschreiben),
@@ -185,7 +195,9 @@ def _rechnung_druck_abgleichen():
 def _druckformat_vorgeben():
 	# DocType-Ebene: nur ueber die dict-Form landet der Eintrag wirklich auf dem
 	# DocType (doctype_or_field="DocType").
-	_setze_setter("Sales Invoice", None, "default_print_format", RECHNUNG_PRINT_FORMAT, "Data")
+	for doctype, format_name in DRUCKFORMATE.items():
+		if frappe.db.exists("Print Format", format_name):
+			_setze_setter(doctype, None, "default_print_format", format_name, "Data")
 
 
 def _leistungsbeginn_beschriften():
@@ -275,3 +287,25 @@ def _einvoice_profil_vorgeben():
 
 	frappe.db.set_value("Custom Field", feld, "default", EINVOICE_PROFIL)
 	frappe.clear_cache(doctype="Sales Invoice")
+
+def _pdf_on_submit_zuordnen():
+	"""Die automatische PDF-Erzeugung beim Buchen auf unsere Druckformate zeigen.
+
+	`pdf_on_submit` haengt beim Buchen fuer alle konfigurierten Belegarten ein PDF an
+	und bettet dabei - wenn `eu_einvoice` installiert ist - das E-Rechnungs-XML ein.
+	Ohne Zuordnung nimmt es das Standardformat der Belegart, das nicht unseres ist.
+	"""
+	if "pdf_on_submit" not in frappe.get_installed_apps():
+		return
+	if not frappe.db.exists("DocType", "PDF on Submit Settings"):
+		return
+
+	settings = frappe.get_doc("PDF on Submit Settings")
+	geaendert = False
+	for row in settings.enabled_for:
+		format_name = DRUCKFORMATE.get(row.document_type)
+		if format_name and frappe.db.exists("Print Format", format_name) and row.print_format != format_name:
+			row.print_format = format_name
+			geaendert = True
+	if geaendert:
+		settings.save(ignore_permissions=True)
