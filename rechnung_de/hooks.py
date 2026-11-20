@@ -95,14 +95,8 @@ required_apps = ["frappe/erpnext"]
 # Installation
 # ------------
 
-# before_install = "rechnung_de.install.before_install"
-# after_install = "rechnung_de.install.after_install"
-
 # Uninstallation
 # ------------
-
-# before_uninstall = "rechnung_de.uninstall.before_uninstall"
-# after_uninstall = "rechnung_de.uninstall.after_uninstall"
 
 # Integration Setup
 # ------------------
@@ -285,6 +279,15 @@ required_apps = ["frappe/erpnext"]
 # -----------
 after_install = "rechnung_de.install.after_install"
 after_migrate = "rechnung_de.install.after_migrate"
+
+# Jinja-Helfer fuer die Druckformate (z. B. html_zu_text)
+jinja = {
+	"methods": ["rechnung_de.utils"],
+}
+
+# Aufraeumen beim Deinstallieren: Druckformate und Property Setter mit Modul
+# entfernt Frappe selbst, den Rest nimmt `uninstall.py` mit.
+after_uninstall = "rechnung_de.uninstall.after_uninstall"
 
 # Beleg-Hooks
 # -----------

@@ -1,9 +1,14 @@
 """Einrichtung fuer Rechnungsdruck und E-Rechnung auf einer Site.
 
 Setzt die Vorgaben, die sonst nur von Hand in der Datenbank stehen wuerden:
-Standard-Druckformat, Feldbeschriftungen, Zahlungsart, Zahlungsbedingung,
+Druckformat, Feldbeschriftungen, Zahlungsart, Zahlungsbedingung,
 Kundennummernkreis und E-Rechnungsprofil. Laeuft nach jedem Migrate und ist
 idempotent - vorhandene Werte werden nur ueberschrieben, wo es gewollt ist.
+
+Alle Property Setter tragen `module = MODULE`. Das ist keine Kosmetik: Frappe
+loescht beim `uninstall-app` genau die Datensaetze, deren Modul zur App gehoert.
+Ohne Modul bleibt der Setter stehen und zeigt danach z. B. auf ein geloeschtes
+Druckformat.
 """
 
 import frappe
@@ -11,15 +16,92 @@ import frappe
 RECHNUNG_PRINT_FORMAT = "Rechnung Kleinunternehmer"
 MODULE = "Rechnung DE"
 
+#: Alle Property Setter, die diese App auf der Site anlegt:
+#: (DocType, Feldname oder None fuer die DocType-Ebene, Property).
+#: Einzige Quelle fuer das Anlegen (install) und das Aufraeumen (uninstall).
+SETZER = (
+	("Sales Invoice", None, "default_print_format"),
+	("Sales Invoice", "from_date", "label"),
+	("Sales Invoice", "to_date", "label"),
+	("Sales Invoice", "to_date", "description"),
+	("Sales Invoice", "payment_terms_template", "default"),
+	("Payment Schedule", "mode_of_payment", "default"),
+	("Customer", "naming_series", "options"),
+	("Customer", "naming_series", "default"),
+)
+
 
 def after_install():
-	_rechnung_druck_abgleichen()
-	_belegvorgaben_abgleichen()
+	_abgleichen()
 
 
 def after_migrate():
+	_abgleichen()
+
+
+def _abgleichen():
 	_rechnung_druck_abgleichen()
 	_belegvorgaben_abgleichen()
+	_module_nachtragen()
+
+
+def _setze_setter(doctype, fieldname, property, value, property_type):
+	"""Einen Property Setter mit Modul-Zuordnung schreiben (idempotent).
+
+	Immer die dict-Form von `frappe.make_property_setter`: nur damit laesst sich
+	`doctype_or_field="DocType"` setzen (die Positionsargumente erzeugen einen
+	DocField-Eintrag ohne Feldnamen, der nie greift). `module` ist dort
+	keyword-only und wird aus dem dict ignoriert - deshalb als zweites Argument.
+	"""
+	frappe.make_property_setter(
+		{
+			"doctype_or_field": "DocType" if fieldname is None else "DocField",
+			"doctype": doctype,
+			"fieldname": fieldname,
+			"property": property,
+			"value": value,
+			"property_type": property_type,
+		},
+		module=MODULE,
+	)
+
+
+def _setze_default_ohne_ueberschreiben(doctype, fieldname, value, property_type="Data"):
+	"""Vorgabe nur setzen, wenn die Site noch keine hat.
+
+	Zahlungsart und Zahlungsbedingung sind eine Entscheidung der Site - steht schon
+	ein Wert da (auch von Hand gesetzt), bleibt er. Die Modul-Zuordnung zieht
+	`_module_nachtragen()` nach.
+	"""
+	if frappe.db.exists("Property Setter", _setter_name(doctype, fieldname, "default")):
+		return
+	_setze_setter(doctype, fieldname, "default", value, property_type)
+
+
+def _module_nachtragen():
+	"""Altlasten ohne Modul-Zuordnung der App zuschlagen.
+
+	Setter aus frueheren Versionen dieser App wurden ohne `module` angelegt und
+	ueberleben deshalb ein `uninstall-app`. Sie werden hier auf MODULE gesetzt,
+	damit die Deinstallation sie mitnimmt.
+	"""
+	try:
+		for doctype, fieldname, property in SETZER:
+			name = _setter_name(doctype, fieldname, property)
+			if not frappe.db.exists("Property Setter", name):
+				continue
+			if frappe.db.get_value("Property Setter", name, "module") != MODULE:
+				frappe.db.set_value("Property Setter", name, "module", MODULE)
+	except Exception:
+		frappe.log_error(
+			title="Rechnung DE: Modul-Zuordnung der Property Setter fehlgeschlagen",
+			message=frappe.get_traceback(),
+		)
+
+
+def _setter_name(doctype, fieldname, property):
+	"""Docname eines Property Setters - PropertySetter.autoname nachgebaut."""
+	return f"{doctype}-{fieldname or 'main'}-{property}"
 
 
 def _rechnung_druck_abgleichen():
@@ -30,43 +112,32 @@ def _rechnung_druck_abgleichen():
 	ERPNext kennt dafuer kein eigenes Feld; die Standardfelder from_date/to_date sind
 	genau dieser Zeitraum und werden von der E-Rechnung als Leistungsdatum (BT-72)
 	gelesen. Deshalb nur umbenennen, kein zweites Feld daneben.
-	Laeuft still (Log), damit ein Migrate ohne Print Format nicht haengt."""
+
+	Fehler werden mit Traceback ins Error Log geschrieben, aber nicht geworfen: ein
+	Migrate soll nicht an einer fehlenden Voraussetzung haengen bleiben.
+	"""
 	try:
 		if not frappe.db.exists("Print Format", RECHNUNG_PRINT_FORMAT):
 			return
 
-		from frappe.custom.doctype.property_setter.property_setter import make_property_setter
-
 		# DocType-Ebene: nur ueber die dict-Form landet der Eintrag wirklich auf dem
-		# DocType (doctype_or_field="DocType"); die Positionsargumente erzeugen sonst
-		# einen DocField-Eintrag ohne Feldnamen, der nie greift.
-		frappe.make_property_setter(
-			{
-				"doctype_or_field": "DocType",
-				"doctype": "Sales Invoice",
-				"property": "default_print_format",
-				"value": RECHNUNG_PRINT_FORMAT,
-				"property_type": "Data",
-				"module": MODULE,
-			}
-		)
-		make_property_setter(
-			"Sales Invoice", "to_date", "label", "Leistungsdatum", "Data", module=MODULE
-		)
-		make_property_setter(
+		# DocType (doctype_or_field="DocType").
+		_setze_setter("Sales Invoice", None, "default_print_format", RECHNUNG_PRINT_FORMAT, "Data")
+		_setze_setter("Sales Invoice", "from_date", "label", "Leistungsbeginn", "Data")
+		_setze_setter("Sales Invoice", "to_date", "label", "Leistungsdatum", "Data")
+		_setze_setter(
 			"Sales Invoice",
 			"to_date",
 			"description",
 			"Tag der Leistungserbringung - erscheint auf der Rechnung und als Leistungsdatum "
 			"(BT-72) in der E-Rechnung",
 			"Small Text",
-			module=MODULE,
-		)
-		make_property_setter(
-			"Sales Invoice", "from_date", "label", "Leistungsbeginn", "Data", module=MODULE
 		)
 	except Exception:
-		frappe.log_error("Zeit & Projekt: Rechnungs-Druckformat konnte nicht gesetzt werden")
+		frappe.log_error(
+			title="Rechnung DE: Rechnungs-Druckformat konnte nicht gesetzt werden",
+			message=frappe.get_traceback(),
+		)
 
 
 def _belegvorgaben_abgleichen():
@@ -78,8 +149,6 @@ def _belegvorgaben_abgleichen():
 	Alles nur setzen, wenn die Voraussetzungen da sind - sonst still ueberspringen.
 	"""
 	try:
-		from frappe.custom.doctype.property_setter.property_setter import make_property_setter
-
 		from rechnung_de.rechnung import zahlungsart_mit_bankkonto
 
 		# Zahlungsart: erste Zahlungsart, hinter der ein Bankkonto mit IBAN haengt
@@ -87,33 +156,27 @@ def _belegvorgaben_abgleichen():
 		if firma:
 			zahlungsart = zahlungsart_mit_bankkonto(firma)
 			if zahlungsart:
-				make_property_setter(
-					"Payment Schedule", "mode_of_payment", "default", zahlungsart, "Data", module=MODULE
+				_setze_default_ohne_ueberschreiben(
+					"Payment Schedule", "mode_of_payment", zahlungsart
 				)
 
 		# Zahlungsbedingung: nur uebernehmen, wenn genau eine Vorlage existiert
 		vorlagen = frappe.get_all("Payment Terms Template", pluck="name")
 		if len(vorlagen) == 1:
-			make_property_setter(
-				"Sales Invoice", "payment_terms_template", "default", vorlagen[0], "Link"
+			_setze_default_ohne_ueberschreiben(
+				"Sales Invoice", "payment_terms_template", vorlagen[0], "Link"
 			)
 
 		# Kundennummern: fortlaufende Serie statt Kundenname als Schluessel
 		if frappe.db.exists("DocType", "Selling Settings"):
-			settings = frappe.get_doc("Selling Settings")
-			if settings.get("cust_master_name") != "Naming Series":
-				settings.cust_master_name = "Naming Series"
-				settings.save(ignore_permissions=True)
-			make_property_setter(
-				"Customer",
-				"naming_series",
-				"options",
-				"KUNDE-.YYYY.-.####\nCUST-.YYYY.-",
-				"Text",
+			einstellungen = frappe.get_doc("Selling Settings")
+			if einstellungen.get("cust_master_name") != "Naming Series":
+				einstellungen.cust_master_name = "Naming Series"
+				einstellungen.save(ignore_permissions=True)
+			_setze_setter(
+				"Customer", "naming_series", "options", "KUNDE-.YYYY.-.####\nCUST-.YYYY.-", "Text"
 			)
-			make_property_setter(
-				"Customer", "naming_series", "default", "KUNDE-.YYYY.-.####", "Text"
-			)
+			_setze_setter("Customer", "naming_series", "default", "KUNDE-.YYYY.-.####", "Text")
 
 		# E-Rechnung: ZUGFeRD/Factur-X als Vorgabe, wenn die App installiert ist
 		if "eu_einvoice" in frappe.get_installed_apps() and frappe.db.exists(
@@ -127,4 +190,7 @@ def _belegvorgaben_abgleichen():
 			)
 			frappe.clear_cache(doctype="Sales Invoice")
 	except Exception:
-		frappe.log_error("Zeit & Projekt: Belegvorgaben konnten nicht gesetzt werden")
+		frappe.log_error(
+			title="Rechnung DE: Belegvorgaben konnten nicht gesetzt werden",
+			message=frappe.get_traceback(),
+		)
