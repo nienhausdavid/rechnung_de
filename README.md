@@ -55,10 +55,26 @@ auf. Sie setzt, jeweils nur wenn die Voraussetzung da ist:
 | `Sales Invoice.payment_terms_template` = Vorgabe | es existiert **genau eine** Payment Terms Template und die Site hat noch keine Vorgabe |
 | `Payment Schedule.mode_of_payment` = Vorgabe | es gibt eine Zahlungsart (Typ Bank) mit aktivem Bankkonto samt IBAN und die Site hat noch keine Vorgabe |
 | `Selling Settings.cust_master_name` = `Naming Series`, `Customer.naming_series` (`options` + `default`) | immer |
-| `Sales Invoice.einvoice_profile` = `EN 16931` (an einem Custom Field) | `eu_einvoice` installiert und Feld vorhanden |
+| `Sales Invoice.einvoice_profile` = `EN 16931` (an einem Custom Field) | `eu_einvoice` installiert, Feld vorhanden und die Site hat noch keine Vorgabe |
 
 Alle Property Setter werden mit `module = "Rechnung DE"` angelegt. Fehler landen mit
-Traceback im Error Log, blockieren ein Migrate aber nicht.
+Traceback im Error Log (`Rechnung DE: <Vorgabe> konnte nicht gesetzt werden`),
+blockieren ein Migrate aber nicht.
+
+Jede Vorgabe wird **einzeln** gesetzt und einzeln abgesichert (`_je_schritt` in
+`install.py`): faellt eine aus, laufen die uebrigen weiter. Vorher lag ein `try` um alle
+Vorgaben - ein Fehler beim ersten Setter riss Zahlungsbedingung, Kundennummernkreis und
+E-Rechnungsprofil mit, und die Site sah danach "normal" aus, obwohl nichts gesetzt war.
+
+Fehlt der `Module Def` der App (z. B. `install-app` auf einer Site ohne Modul-Sync), legt
+`_setze_setter()` den Setter nach einem `LinkValidationError` ohne Modul an, statt ihn
+ganz zu verwerfen; `_module_nachtragen()` zieht die Zuordnung beim naechsten Migrate nach,
+sobald es den `Module Def` gibt.
+
+Vorgaben, die eine Site-Entscheidung sind (Zahlungsart im Zahlungsplan,
+Zahlungsbedingung, E-Rechnungsprofil), setzt die App **nur, wenn noch keine da ist** -
+sonst wuerde jedes Migrate die Wahl des Nutzers zuruecksetzen.
+
 
 ## Deinstallation
 
@@ -129,6 +145,10 @@ Vorgabe fuer neue Ausgangsrechnungen ist `einvoice_profile = "EN 16931"` (ZUGFeR
 „Comfort“ / Factur-X EN 16931). Gesetzt als `default` am Custom Field
 `Sales Invoice.einvoice_profile`; das Feld ist pro Rechnung umstellbar (`XRECHNUNG`,
 `BASIC`, `EXTENDED`).
+
+Der Default ist eine Site-Entscheidung: `install.py` setzt ihn nur, wenn am Custom Field
+noch keiner steht. Eine Site, die bewusst `XRECHNUNG` (B2G/Behoerden) vorgibt, behaelt
+ihre Wahl ueber jedes Migrate hinweg.
 
 - `EN 16931` und `EXTENDED` erzeugen ein PDF mit eingebettetem CII-XML (`factur-x.xml`).
 - `XRECHNUNG` erzeugt nur XML; die App bettet dort bewusst nichts ein.
