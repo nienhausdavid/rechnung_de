@@ -8,7 +8,7 @@ app_license = "mit"
 # Apps
 # ------------------
 
-# required_apps = []
+required_apps = ["frappe/erpnext"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -279,3 +279,21 @@ app_license = "mit"
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+
+
+# Einrichtung
+# -----------
+after_install = "rechnung_de.install.after_install"
+after_migrate = "rechnung_de.install.after_migrate"
+
+# Beleg-Hooks
+# -----------
+doc_events = {
+	"Sales Invoice": {
+		"validate": [
+			"rechnung_de.rechnung.setze_zahlungsart",
+			"rechnung_de.rechnung.ergaenze_leistungsdatum",
+			"rechnung_de.rechnung.ergaenze_buyer_reference",
+		],
+	},
+}
