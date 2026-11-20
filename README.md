@@ -173,3 +173,20 @@ Alle Nutzdaten laufen durch `|e` (HTML-Escape). Ausnahmen mit Begruendung:
 
 Beim Aendern der Formate gegenpruefen: kein `{{ row.x }}` oder `{{ doc.x }}` ohne
 Filter, und `html_zu_text(...)` immer mit `|e` kombinieren.
+
+## Beim Buchen
+
+- **ZUGFeRD-PDF wird angehängt:** `haenge_zugferd_pdf_an()` (on_submit) erzeugt das PDF
+  im Standard-Druckformat, bettet das XML über `eu_einvoice.einvoice.attach_xml_to_pdf`
+  ein und legt es als `<Belegname> (ZUGFeRD).pdf` an die Rechnung. Die E-Rechnungs-App
+  selbst hängt nur bei Profil `XRECHNUNG` eine XML-Datei an.
+- **Validierung blockiert:** `E Invoice Settings` steht auf Speichern **und** Buchen
+  `Error Message`. Rechnungen mit XML-Fehlern (z. B. fehlende Kundenanschrift BR-10,
+  fehlende Käufer-E-Mail BR-62) lassen sich nicht buchen.
+
+## Site-Einstellungen, die dazugehören
+
+- `Print Settings.pdf_generator` = `wkhtmltopdf`. Der Chrome-Generator braucht ein
+  funktionierendes Chromium im Container; ohne das scheitert *jeder* PDF-Download.
+  Die Druckformate dieser App setzen `wkhtmltopdf` ohnehin selbst.
+- `E Invoice Settings.error_action_on_save/_on_submit` = `Error Message` (siehe oben).

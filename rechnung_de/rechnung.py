@@ -76,3 +76,52 @@ def ergaenze_buyer_reference(doc, method=None):
 	if doc.get("einvoice_profile") != "XRECHNUNG" or doc.get("buyer_reference"):
 		return
 	doc.buyer_reference = doc.get("customer") or doc.get("customer_name")
+
+def haenge_zugferd_pdf_an(doc, method=None):
+	"""Beim Buchen das PDF mit eingebettetem XML (ZUGFeRD/Factur-X) an den Beleg haengen.
+
+	Die E-Rechnungs-App haengt automatisch nur bei Profil XRECHNUNG eine XML-Datei an.
+	Bei den Factur-X-Profilen ist die E-Rechnung das PDF selbst, deshalb passiert das hier.
+
+	Ein Fehler beim Anhaengen blockiert das Buchen nicht - der Beleg ist auch ohne
+	Anhang gueltig und das PDF laesst sich jederzeit neu erzeugen. Der Fehler landet
+	aber mit klarem Titel im Error Log, nicht im Nirwana.
+	"""
+	if not doc.get("einvoice_profile") or doc.get("einvoice_profile") == "XRECHNUNG":
+		return
+	if "eu_einvoice" not in frappe.get_installed_apps():
+		return
+
+	dateiname = f"{doc.name} (ZUGFeRD).pdf"
+	schon_da = frappe.db.exists(
+		"File",
+		{
+			"attached_to_doctype": doc.doctype,
+			"attached_to_name": doc.name,
+			"file_name": dateiname,
+		},
+	)
+	if schon_da:
+		return
+
+	try:
+		from eu_einvoice.european_e_invoice.einvoice import attach_xml_to_pdf
+		from frappe.utils.print_utils import get_print
+
+		pdf = get_print(doctype=doc.doctype, name=doc.name, as_pdf=True, pdf_generator="wkhtmltopdf")
+		pdf = attach_xml_to_pdf(doc.name, pdf, doc.doctype)
+		frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": dateiname,
+				"attached_to_doctype": doc.doctype,
+				"attached_to_name": doc.name,
+				"is_private": 1,
+				"content": pdf,
+			}
+		).insert(ignore_permissions=True)
+	except Exception:
+		frappe.log_error(
+			title="Rechnung DE: ZUGFeRD-PDF konnte nicht angehaengt werden",
+			message=frappe.get_traceback(),
+		)

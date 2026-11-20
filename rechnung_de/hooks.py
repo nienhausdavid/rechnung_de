@@ -298,5 +298,6 @@ doc_events = {
 			"rechnung_de.rechnung.ergaenze_leistungsdatum",
 			"rechnung_de.rechnung.ergaenze_buyer_reference",
 		],
+		"on_submit": "rechnung_de.rechnung.haenge_zugferd_pdf_an",
 	},
 }
